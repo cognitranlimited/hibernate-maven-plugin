@@ -129,7 +129,7 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
   /** Parameters to configure the genaration of the SQL *********************/
 
   /**
-   * Excecute the generated SQL.
+   * Execute the generated SQL.
    * If set to <code>false</code>, only the SQL-script is created and the
    * database is not touched.
    * <p>
@@ -373,16 +373,16 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
   /** Parameters to locate configuration sources ****************************/
 
   /**
-   * Path to a file or name of a ressource with hibernate properties.
+   * Path to a file or name of a resource with hibernate properties.
    * If this parameter is specified, the plugin will try to load configuration
-   * values from a file with the given path or a ressource on the classpath with
+   * values from a file with the given path or a resource on the classpath with
    * the given name. If both fails, the execution of the plugin will fail.
    * <p>
    * If this parameter is not set the plugin will load configuration values
-   * from a ressource named <code>hibernate.properties</code> on the classpath,
+   * from a resource named <code>hibernate.properties</code> on the classpath,
    * if it is present, but will not fail if there is no such ressource.
    * <p>
-   * During ressource-lookup, the test-classpath takes precedence.
+   * During resource-lookup, the test-classpath takes precedence.
    *
    * @parameter
    * @since 1.0
@@ -475,15 +475,15 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
       MutableClassLoader classLoader = createClassLoader();
 
       /** Create a BootstrapServiceRegistry with the created ClassLoader */
-      BootstrapServiceRegistry bootstrapServiceRegitry =
+      BootstrapServiceRegistry bootstrapServiceRegistry =
           new BootstrapServiceRegistryBuilder()
               .applyClassLoader(classLoader)
               .build();
       ClassLoaderService classLoaderService =
-          bootstrapServiceRegitry.getService(ClassLoaderService.class);
+          bootstrapServiceRegistry.getService(ClassLoaderService.class);
 
       Properties properties = new Properties();
-      ConfigLoader configLoader = new ConfigLoader(bootstrapServiceRegitry);
+      ConfigLoader configLoader = new ConfigLoader(bootstrapServiceRegistry);
 
       /** Loading and merging configuration */
       properties.putAll(loadProperties(configLoader));
@@ -511,7 +511,7 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
 
       /** Configure Hibernate */
       final StandardServiceRegistry serviceRegistry =
-          new StandardServiceRegistryBuilder(bootstrapServiceRegitry)
+          new StandardServiceRegistryBuilder(bootstrapServiceRegistry)
               .applySettings(properties)
               .addService(ConnectionProvider.class, connectionProvider)
               .build();
@@ -1344,14 +1344,12 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
       throws
         MojoFailureException
   {
-    PersistenceXmlParser parser =
-        new PersistenceXmlParser(
-            classLoaderService,
-            PersistenceUnitTransactionType.RESOURCE_LOCAL
-             );
-
     Map<String, ParsedPersistenceXmlDescriptor> units =
-        parser.doResolve(properties);
+            PersistenceXmlParser.parse(
+                    null,
+                    PersistenceUnitTransactionType.RESOURCE_LOCAL,
+                    Collections.unmodifiableMap( properties )
+            );
 
     if (persistenceUnit == null)
     {

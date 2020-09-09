@@ -19,13 +19,13 @@
     <url>http://juplo.de/hibernate-maven-plugin</url>
 
     <properties>
-        <de.juplo-hibernate-plugin-version>@project.version@</de.juplo-hibernate-plugin-version>
+        <de.juplo-hibernate-plugin-version>2.1-SNAPSHOT</de.juplo-hibernate-plugin-version>
 
         <maven.deploy.skip>true</maven.deploy.skip>
-        <org.hibernate.version>4.2.5.Final</org.hibernate.version>
+        <org.hibernate.version>5.3.10.Final</org.hibernate.version>
         <org.hibernate.javax.persistence_hibernate-jpa-2.0-api.version>1.0.1.Final
         </org.hibernate.javax.persistence_hibernate-jpa-2.0-api.version>
-        <org.hibernate_hibernate-validator.version>4.3.1.Final</org.hibernate_hibernate-validator.version>
+        <org.hibernate_hibernate-validator.version>6.0.16.Final</org.hibernate_hibernate-validator.version>
         <org.slf4j.version>1.7.5</org.slf4j.version>
         <org.junit.version>4.11</org.junit.version>
         <org.hsqldb.version>2.2.9</org.hsqldb.version>
