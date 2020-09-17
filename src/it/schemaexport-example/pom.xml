@@ -1,10 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
 	<properties>
-		<hibernate.version>4.2.6.Final</hibernate.version>
-		<hibernate.entitymanager.version>4.2.6.Final</hibernate.entitymanager.version>
-		<hibernate.c3p0.version>4.2.6.Final</hibernate.c3p0.version>
-		<hibernate.validator.version>5.0.1.Final</hibernate.validator.version>
+		<hibernate.version>5.3.10.Final</hibernate.version>
+		<hibernate.validator.version>6.0.16.Final</hibernate.validator.version>
 		<hibernate.jpa20.version>1.0.1.Final</hibernate.jpa20.version>
 		<slf4j.version>1.4.2</slf4j.version>
 	</properties>
@@ -19,7 +17,7 @@
 			<dependency>
 				<groupId>org.hibernate</groupId>
 				<artifactId>hibernate-entitymanager</artifactId>
-				<version>${hibernate.entitymanager.version}</version>
+				<version>${hibernate.version}</version>
 				<type>jar</type>
 				<exclusions>
 					<exclusion>

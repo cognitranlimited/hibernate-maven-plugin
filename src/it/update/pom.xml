@@ -34,7 +34,7 @@
     <properties>
         <!-- Skip artifact deployment -->
         <maven.deploy.skip>true</maven.deploy.skip>
-        <plugin.version>@project.version@</plugin.version>
+        <plugin.version>2.1-SNAPSHOT</plugin.version>
     </properties>
 
 

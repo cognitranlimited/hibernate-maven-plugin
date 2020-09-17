@@ -8,22 +8,22 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.MalformedURLException;
+import java.net.URI;
 import java.net.URL;
 import java.security.NoSuchAlgorithmException;
 import java.time.ZonedDateTime;
 import java.util.Collections;
 import java.util.EnumSet;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import javax.persistence.Embeddable;
 import javax.persistence.Entity;
 import javax.persistence.MappedSuperclass;
@@ -38,7 +38,6 @@ import org.hibernate.boot.MetadataBuilder;
 import org.hibernate.boot.MetadataSources;
 import org.hibernate.boot.cfgxml.internal.ConfigLoader;
 import org.hibernate.boot.cfgxml.spi.LoadedConfig;
-import org.hibernate.boot.cfgxml.spi.MappingReference;
 import org.hibernate.boot.model.naming.ImplicitNamingStrategy;
 import org.hibernate.boot.model.naming.PhysicalNamingStrategy;
 import org.hibernate.boot.registry.BootstrapServiceRegistry;
@@ -84,14 +83,12 @@ import org.scannotation.AnnotationDB;
  * Baseclass with common attributes and methods.
  *
  * @phase process-classes
- * @threadSafe
  * @requiresDependencyResolution runtime
  */
 public abstract class AbstractSchemaMojo extends AbstractMojo
 {
   public final static String EXECUTE = "hibernate.schema.execute";
   public final static String OUTPUTDIRECTORY = "project.build.outputDirectory";
-  public final static String SCAN_CLASSES = "hibernate.schema.scan.classes";
   public final static String SCAN_DEPENDENCIES = "hibernate.schema.scan.dependencies";
   public final static String SCAN_TESTCLASSES = "hibernate.schema.scan.test_classes";
   public final static String TEST_OUTPUTDIRECTORY = "project.build.testOutputDirectory";
@@ -100,7 +97,7 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
 
   private final static Pattern SPLIT = Pattern.compile("[^,\\s]+");
 
-  private final Set<String> packages = new HashSet<String>();
+  private final Set<String> packages = new HashSet<>();
 
 
   /**
@@ -126,10 +123,10 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
   private String buildDirectory;
 
 
-  /** Parameters to configure the genaration of the SQL *********************/
+  /* Parameters to configure the generation of the SQL *********************/
 
   /**
-   * Excecute the generated SQL.
+   * Execute the generated SQL.
    * If set to <code>false</code>, only the SQL-script is created and the
    * database is not touched.
    * <p>
@@ -373,16 +370,16 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
   /** Parameters to locate configuration sources ****************************/
 
   /**
-   * Path to a file or name of a ressource with hibernate properties.
+   * Path to a file or name of a resource with hibernate properties.
    * If this parameter is specified, the plugin will try to load configuration
-   * values from a file with the given path or a ressource on the classpath with
+   * values from a file with the given path or a resource on the classpath with
    * the given name. If both fails, the execution of the plugin will fail.
    * <p>
    * If this parameter is not set the plugin will load configuration values
-   * from a ressource named <code>hibernate.properties</code> on the classpath,
+   * from a resource named <code>hibernate.properties</code> on the classpath,
    * if it is present, but will not fail if there is no such ressource.
    * <p>
-   * During ressource-lookup, the test-classpath takes precedence.
+   * During resource-lookup, the test-classpath takes precedence.
    *
    * @parameter
    * @since 1.0
@@ -439,9 +436,7 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
 
 
   public final void execute(String filename)
-    throws
-      MojoFailureException,
-      MojoExecutionException
+          throws MojoFailureException, MojoExecutionException
   {
     if (skip)
     {
@@ -460,115 +455,98 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
       throw new MojoFailureException("Digest-Algorithm MD5 is missing!", e);
     }
 
-    final SimpleConnectionProvider connectionProvider =
-        new SimpleConnectionProvider(getLog());
+    final SimpleConnectionProvider connectionProvider = new SimpleConnectionProvider(getLog());
 
     try
     {
-      /** Start extended logging */
+      // Start extended logging
       MavenLogAppender.startPluginLog(this);
 
-      /** Load checksums for old mapping and configuration */
+      // Load checksums for old mapping and configuration
       tracker.load();
 
-      /** Create the ClassLoader */
       MutableClassLoader classLoader = createClassLoader();
 
-      /** Create a BootstrapServiceRegistry with the created ClassLoader */
-      BootstrapServiceRegistry bootstrapServiceRegitry =
-          new BootstrapServiceRegistryBuilder()
-              .applyClassLoader(classLoader)
-              .build();
-      ClassLoaderService classLoaderService =
-          bootstrapServiceRegitry.getService(ClassLoaderService.class);
+      // Create a BootstrapServiceRegistry with the created ClassLoader
+      BootstrapServiceRegistry bootstrapServiceRegistry = new BootstrapServiceRegistryBuilder()
+                                                              .applyClassLoader(classLoader)
+                                                              .build();
+
+      ClassLoaderService classLoaderService = bootstrapServiceRegistry.getService(ClassLoaderService.class);
 
       Properties properties = new Properties();
-      ConfigLoader configLoader = new ConfigLoader(bootstrapServiceRegitry);
+      ConfigLoader configLoader = new ConfigLoader(bootstrapServiceRegistry);
 
-      /** Loading and merging configuration */
+      // Loading and merging configuration
       properties.putAll(loadProperties(configLoader));
       LoadedConfig config = loadConfig(configLoader);
-      if (config != null)
-        properties.putAll(config.getConfigurationValues());
-      ParsedPersistenceXmlDescriptor unit =
-          loadPersistenceUnit(classLoaderService, properties);
-      if (unit != null)
-        properties.putAll(unit.getProperties());
 
-      /** Overwriting/Completing configuration */
+      if (config != null) properties.putAll(config.getConfigurationValues());
+
+      ParsedPersistenceXmlDescriptor unit = loadPersistenceUnit(properties);
+
+      if (unit != null) properties.putAll(unit.getProperties());
+
       configure(properties, tracker);
 
-      /** Check configuration for modifications */
-      if(tracker.track(properties))
-        getLog().debug("Configuration has changed.");
-      else
-        getLog().debug("Configuration unchanged.");
+      // Check configuration for modifications
+      String debug = tracker.track(properties) ? "Configuration has changed." : "Configuration unchanged.";
+      getLog().debug(debug);
 
-      /** Check, that the outputfile is writable */
       final File output = getOutputFile(filename);
-      /** Check, if the outputfile is missing or was changed */
       checkOutputFile(output, tracker);
 
-      /** Configure Hibernate */
-      final StandardServiceRegistry serviceRegistry =
-          new StandardServiceRegistryBuilder(bootstrapServiceRegitry)
-              .applySettings(properties)
-              .addService(ConnectionProvider.class, connectionProvider)
-              .build();
+      // Configure Hibernate
+      final StandardServiceRegistry serviceRegistry = new StandardServiceRegistryBuilder(bootstrapServiceRegistry)
+                                                          .applySettings(properties)
+                                                          .addService(ConnectionProvider.class, connectionProvider)
+                                                          .build();
+
       final MetadataSources sources = new MetadataSources(serviceRegistry);
 
-      /** Add the remaining class-path-elements */
       completeClassPath(classLoader);
 
-      /** Apply mappings from hibernate-configuration, if present */
+      // Apply mappings from hibernate-configuration, if present
       if (config != null)
       {
-        for (MappingReference mapping : config.getMappingReferences())
-          mapping.apply(sources);
+        config.getMappingReferences().forEach(e -> e.apply(sources));
       }
 
       Set<String> classes;
       if (unit == null)
       {
-        /** No persistent unit: default behaviour */
-        if (scanClasses == null)
-          scanClasses = true;
-        Set<URL> urls = new HashSet<URL>();
-        if (scanClasses)
-          addRoot(urls, outputDirectory);
-        if (scanTestClasses)
-          addRoot(urls, testOutputDirectory);
+        // No persistence unit: default behaviour
+        if (scanClasses == null) scanClasses = true;
+
+        Set<URL> urls = new HashSet<>();
+        if (scanClasses) addRoot(urls);
+
+        if (scanTestClasses) addRoot(urls);
+
         addDependencies(urls);
         classes = scanUrls(urls);
       }
       else
       {
-        /** Follow configuration in persisten unit */
-        if (scanClasses == null)
-          scanClasses = !unit.isExcludeUnlistedClasses();
-        Set<URL> urls = new HashSet<URL>();
+        // Follow configuration in persistence unit
+        if (scanClasses == null) scanClasses = !unit.isExcludeUnlistedClasses();
+
+        Set<URL> urls = new HashSet<>();
         if (scanClasses)
         {
-          /**
-           * Scan the root of the persiten unit and configured jars for
-           * annotated classes
-           */
+          // Scan the root of the persistence unit and configured jars for annotated classes
           urls.add(unit.getPersistenceUnitRootUrl());
-          for (URL url : unit.getJarFileUrls())
-            urls.add(url);
+          urls.addAll(unit.getJarFileUrls());
         }
-        if (scanTestClasses)
-          addRoot(urls, testOutputDirectory);
+
+        if (scanTestClasses) addRoot(urls);
+
         classes = scanUrls(urls);
-        for (String className : unit.getManagedClassNames())
-          classes.add(className);
-        /**
-         * Add mappings from the default mapping-file
-         * <code>META-INF/orm.xml</code>, if present
-         */
+        classes.addAll(unit.getManagedClassNames());
+
+        // Add mappings from the default mapping-file <code>META-INF/orm.xml</code>, if present
         boolean error = false;
-        InputStream is;
-        is = classLoader.getResourceAsStream("META-INF/orm.xml");
+        InputStream is = classLoader.getResourceAsStream("META-INF/orm.xml");
         if (is != null)
         {
           getLog().info("Adding default JPA-XML-mapping from META-INF/orm.xml");
@@ -587,10 +565,8 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
         {
           getLog().debug("no META-INF/orm.xml found");
         }
-        /**
-         * Add mappings from files, that are explicitly configured in the
-         * persistence unit
-         */
+
+        // Add mappings from files, that are explicitly configured in the persistence unit
         for (String mapping : unit.getMappingFileNames())
         {
           getLog().info("Adding explicitly configured mapping from " + mapping);
@@ -614,27 +590,22 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
             error = true;
           }
         }
-        if (error)
-          throw new MojoFailureException(
-              "error, while reading mappings configured in persistence-unit \"" +
-              unit.getName() +
-              "\""
-              );
+        if (error) throw new MojoFailureException("error, while reading mappings configured in persistence-unit \"" + unit.getName() + "\"");
       }
 
-      /** Add the configured/collected annotated classes */
-      for (String className : classes)
-        addAnnotated(className, sources, classLoaderService, tracker);
+      // Add the configured/collected annotated classes.
+      for (String className : classes) addAnnotated(className, sources, classLoaderService, tracker);
 
-      /** Add explicitly configured classes */
       addMappings(sources, tracker);
 
-      /** Skip execution, if mapping and configuration is unchanged */
+      // Skip execution, if mapping and configuration is unchanged.
       if (!tracker.modified())
       {
         getLog().info("Mapping and configuration unchanged.");
         if (force)
+        {
           getLog().info("Generation/execution is forced!");
+        }
         else
         {
           getLog().info("Skipping schema generation!");
@@ -643,64 +614,45 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
         }
       }
 
-
-      /** Truncate output file */
+      // Truncate output file */
       try
       {
         new FileOutputStream(output).getChannel().truncate(0).close();
       }
       catch (IOException e)
       {
-        String error =
-            "Error while truncating " + output.getAbsolutePath() + ": "
-            + e.getMessage();
+        String error = "Error while truncating " + output.getAbsolutePath() + ": " + e.getMessage();
         getLog().warn(error);
         throw new MojoExecutionException(error);
       }
 
-      /** Create a connection, if sufficient configuration infromation is available */
+      // Create a connection, if sufficient configuration information is available.
       connectionProvider.open(classLoaderService, properties);
 
       MetadataBuilder metadataBuilder = sources.getMetadataBuilder();
 
-      StrategySelector strategySelector =
-          serviceRegistry.getService(StrategySelector.class);
+      StrategySelector strategySelector = serviceRegistry.getService(StrategySelector.class);
 
       if (properties.containsKey(IMPLICIT_NAMING_STRATEGY))
       {
-        metadataBuilder.applyImplicitNamingStrategy(
-            strategySelector.resolveStrategy(
-                ImplicitNamingStrategy.class,
-                properties.getProperty(IMPLICIT_NAMING_STRATEGY)
-                )
-            );
+        ImplicitNamingStrategy ins = strategySelector.resolveStrategy(ImplicitNamingStrategy.class, properties.getProperty(IMPLICIT_NAMING_STRATEGY));
+        metadataBuilder.applyImplicitNamingStrategy(ins);
       }
 
       if (properties.containsKey(PHYSICAL_NAMING_STRATEGY))
       {
-        metadataBuilder.applyPhysicalNamingStrategy(
-            strategySelector.resolveStrategy(
-                PhysicalNamingStrategy.class,
-                properties.getProperty(PHYSICAL_NAMING_STRATEGY)
-                )
-            );
+        PhysicalNamingStrategy pns = strategySelector.resolveStrategy(PhysicalNamingStrategy.class, properties.getProperty(PHYSICAL_NAMING_STRATEGY));
+        metadataBuilder.applyPhysicalNamingStrategy(pns);
       }
 
-      /** Prepare the generation of the SQL */
-      Map settings = new HashMap();
-      settings.putAll(
-          serviceRegistry
-              .getService(ConfigurationService.class)
-              .getSettings()
-              );
-      ExceptionHandlerCollectingImpl handler =
-          new ExceptionHandlerCollectingImpl();
-      ExecutionOptions options =
-          SchemaManagementToolCoordinator
-              .buildExecutionOptions(settings, handler);
+      // Prepare the generation of the SQL.
+      Map settings = serviceRegistry.getService(ConfigurationService.class).getSettings();
+      ExceptionHandlerCollectingImpl handler = new ExceptionHandlerCollectingImpl();
+      ExecutionOptions options = SchemaManagementToolCoordinator.buildExecutionOptions(settings, handler);
       final EnumSet<TargetType> targetTypes = EnumSet.of(TargetType.SCRIPT);
-      if (execute)
-        targetTypes.add(TargetType.DATABASE);
+
+      if (execute) targetTypes.add(TargetType.DATABASE);
+
       TargetDescriptor target = new TargetDescriptor()
       {
         @Override
@@ -712,21 +664,16 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
         @Override
         public ScriptTargetOutput getScriptTargetOutput()
         {
-          String charset =
-              (String)
-              serviceRegistry
-                  .getService(ConfigurationService.class)
-                  .getSettings()
-                  .get(AvailableSettings.HBM2DDL_CHARSET_NAME);
+          String charset = (String) serviceRegistry.getService(ConfigurationService.class)
+                                                    .getSettings()
+                                                    .get(AvailableSettings.HBM2DDL_CHARSET_NAME);
           return new ScriptTargetOutputToFile(output, charset);
         }
       };
 
-      /**
-       * Change class-loader of current thread.
-       * This is necessary, because still not all parts of Hibernate 5 use
-       * the newly introduced ClassLoaderService and will fail otherwise!
-       */
+      //Change class-loader of current thread.
+      //This is necessary because still not all parts of Hibernate 5 use
+      //the newly introduced ClassLoaderService and will fail otherwise!
       Thread thread = Thread.currentThread();
       ClassLoader contextClassLoader = thread.getContextClassLoader();
       try
@@ -737,11 +684,7 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
         {
           StringBuilder builder = new StringBuilder();
           builder.append("Hibernate failed:");
-          for (Exception e : handler.getExceptions())
-          {
-            builder.append("\n * ");
-            builder.append(e.getMessage());
-          }
+          handler.getExceptions().forEach(e -> builder.append("\n * ").append(e.getMessage()));
           String error = builder.toString();
           getLog().error(error);
           throw new MojoFailureException(error);
@@ -750,58 +693,47 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
       finally
       {
         thread.setContextClassLoader(contextClassLoader);
-        /** Track, the content of the generated script */
         checkOutputFile(output, tracker);
       }
     }
-    catch (MojoExecutionException e)
-    {
-      tracker.failed();
-      throw e;
-    }
-    catch (MojoFailureException e)
-    {
-      tracker.failed();
-      throw e;
-    }
-    catch (RuntimeException e)
+    catch (MojoExecutionException | MojoFailureException | RuntimeException e)
     {
       tracker.failed();
       throw e;
     }
     finally
     {
-      /** Remember mappings and configuration */
       tracker.save();
-
-      /** Close the connection - if one was opened */
       connectionProvider.close();
-
-      /** Stop Log-Capturing */
       MavenLogAppender.endPluginLog(this);
     }
   }
 
 
-  abstract void build(
-      MetadataImplementor metadata,
-      ExecutionOptions options,
-      TargetDescriptor target
-      )
-    throws
-      MojoFailureException,
-      MojoExecutionException;
+  /**
+   * Build the schema.
+   *
+   * @param metadata meta
+   * @param options options
+   * @param target target
+   */
+  abstract void build(MetadataImplementor metadata, ExecutionOptions options, TargetDescriptor target)
+    throws MojoFailureException, MojoExecutionException;
 
 
+  /**
+   * Create the ClassLoader.
+   *
+   * @return the created classloader
+   * @throws MojoExecutionException if an exception is thrown during the creating of the class loader
+   */
   private MutableClassLoader createClassLoader() throws MojoExecutionException
   {
     try
     {
       getLog().debug("Creating ClassLoader for project-dependencies...");
-      LinkedHashSet<URL> urls = new LinkedHashSet<URL>();
-      File file;
-
-      file = new File(testOutputDirectory);
+      LinkedHashSet<URL> urls = new LinkedHashSet<>();
+      File file = new File(testOutputDirectory);
       if (!file.exists())
       {
         getLog().info("Creating test-output-directory: " + testOutputDirectory);
@@ -826,22 +758,30 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
     }
   }
 
+  /**
+   * Add the remaining class-path-elements.
+   *
+   * @param classLoader the class loader
+   * @throws MojoExecutionException if any exception occurs during operation
+   */
   private void completeClassPath(MutableClassLoader classLoader)
-      throws
-        MojoExecutionException
+      throws MojoExecutionException
   {
     try
     {
       getLog().debug("Completing class-paths of the ClassLoader for project-dependencies...");
       List<String> classpathFiles = project.getCompileClasspathElements();
-      if (scanTestClasses)
-        classpathFiles.addAll(project.getTestClasspathElements());
-      LinkedHashSet<URL> urls = new LinkedHashSet<URL>();
-      for (String pathElement : classpathFiles)
-      {
-        getLog().debug("Dependency: " + pathElement);
-        urls.add(new File(pathElement).toURI().toURL());
-      }
+
+      if (scanTestClasses) classpathFiles.addAll(project.getTestClasspathElements());
+
+      //Potentially large collections that would benefit from parallel.
+      LinkedHashSet<URL> urls = classpathFiles.parallelStream()
+                                              .peek(e -> getLog().debug("Dependency" + e))
+                                              .map(File::new)
+                                              .map(File::toURI)
+                                              .map(this::toUrl)
+                                              .collect(Collectors.toCollection(LinkedHashSet::new));
+
       classLoader.add(urls);
     }
     catch (Exception e)
@@ -851,11 +791,30 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
     }
   }
 
+  /**
+   * Wrapper for checked exception so the operation can be
+   * performed within a java stream without providing a block lambda.
+   *
+   * @param uri the URI to convert
+   * @return the URL result
+   */
+  private URL toUrl(URI uri)
+  {
+    try
+    {
+      return uri.toURL();
+    }
+    catch (MalformedURLException e)
+    {
+      throw new RuntimeException(e);
+    }
+  }
+
   private Map loadProperties(ConfigLoader configLoader)
       throws
         MojoExecutionException
   {
-    /** Try to read configuration from properties-file */
+    // Try to read configuration from properties-file.
     if (hibernateProperties == null)
     {
       try
@@ -892,7 +851,7 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
   private LoadedConfig loadConfig(ConfigLoader configLoader)
       throws MojoExecutionException
   {
-    /** Try to read configuration from configuration-file */
+    // Try to read configuration from configuration-file */
     if (hibernateConfig == null)
     {
       try
@@ -928,28 +887,23 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
     }
   }
 
+  /**
+   * Overwrite/Complete configuration.
+   *
+   * @param properties config properties
+   * @param tracker the tracker
+   * @throws MojoFailureException if properties are unexpectedly empty
+   */
   private void configure(Properties properties, ModificationTracker tracker)
-      throws MojoFailureException
-  {
-    /**
-     * Special treatment for the configuration-value "execute": if it is
-     * switched to "true", the genearation fo the schema should be forced!
-     */
-    if (tracker.check(EXECUTE, execute.toString()) && execute)
-    {
-      getLog().info(
-          "hibernate.schema.execute was switched on: " +
-          "forcing generation/execution of SQL"
-          );
+      throws MojoFailureException {
+    // Special treatment for the configuration-value "execute": if it is
+    // switched to "true", the generation of the schema should be forced!
+    if (tracker.check(EXECUTE, execute.toString()) && execute) {
+      getLog().info("hibernate.schema.execute was switched on: forcing generation/execution of SQL");
       tracker.touch();
     }
     configure(properties, execute, EXECUTE);
 
-    /**
-     * Configure the generation of the SQL.
-     * Overwrite values from properties-file if the configuration parameter is
-     * known to Hibernate.
-     */
     configure(properties, dialect, DIALECT);
     configure(properties, delimiter, HBM2DDL_DELIMITER);
     configure(properties, format, FORMAT_SQL);
@@ -961,20 +915,17 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
     configure(properties, scanTestClasses, SCAN_TESTCLASSES);
     configure(properties, testOutputDirectory, TEST_OUTPUTDIRECTORY);
 
-    /**
-     * Special treatment for the configuration-value "show": a change of its
-     * configured value should not lead to a regeneration of the database
-     * schama!
-     */
+    //Special treatment for the configuration-value "show": a change of its
+    //configured value should not lead to a regeneration of the database schema!
     if (show == null)
+    {
       show = Boolean.valueOf(properties.getProperty(SHOW_SQL));
+    }
     else
+    {
       properties.setProperty(SHOW_SQL, show.toString());
+    }
 
-    /**
-     * Configure the connection parameters.
-     * Overwrite values from properties-file.
-     */
     configure(properties, driver, DRIVER, JPA_JDBC_DRIVER);
     configure(properties, url, URL, JPA_JDBC_URL);
     configure(properties, username, USER, JPA_JDBC_USER);
@@ -987,16 +938,19 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
     }
 
     getLog().info("Gathered configuration:");
-    for (Entry<Object,Object> entry : properties.entrySet())
-      getLog().info("  " + entry.getKey() + " = " + entry.getValue());
+    properties.forEach((key, value) -> getLog().info("  " + key + " = " + value));
   }
 
-  private void configure(
-      Properties properties,
-      String value,
-      String key,
-      String alternativeKey
-      )
+  /**
+   * Configure the connection parameters.
+   * Overwrite values from properties-file.
+   *
+   * @param properties the properties
+   * @param value the value
+   * @param key the key
+   * @param alternativeKey the alt key
+   */
+  private void configure(Properties properties, String value, String key, String alternativeKey)
   {
     configure(properties, value, key);
 
@@ -1004,27 +958,29 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
     {
       if (properties.containsKey(key))
       {
-        getLog().warn(
-            "Ignoring property " + alternativeKey + "=\"" +
-            properties.getProperty(alternativeKey) +
-            "\" in favour for property " + key + "=\"" +
-            properties.getProperty(key) + "\""
-            );
+        getLog().warn("Ignoring property " + alternativeKey + "=\"" + properties.getProperty(alternativeKey) +
+                      "\" in favour for property " + key + "=\"" + properties.getProperty(key) + "\"");
         properties.remove(alternativeKey);
       }
       else
       {
         value = properties.getProperty(alternativeKey);
         properties.remove(alternativeKey);
-        getLog().info(
-            "Using value \"" + value + "\" from property " + alternativeKey +
-            " for property " + key
-            );
+        getLog().info("Using value \"" + value + "\" from property " + alternativeKey + " for property " + key);
         properties.setProperty(key, value);
       }
     }
   }
 
+
+  /**
+   * Configure the generation of the SQL.
+   * Overwrite values from properties-file if the configuration parameter is known to Hibernate.
+   *
+   * @param properties the properties
+   * @param value the value
+   * @param key the key
+   */
   private void configure(Properties properties, String value, String key)
   {
     if (value != null)
@@ -1033,11 +989,7 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
       {
         if (!properties.getProperty(key).equals(value))
         {
-          getLog().info(
-              "Overwriting property " + key + "=\"" +
-              properties.getProperty(key) +
-              "\" with value \"" + value + "\""
-              );
+          getLog().info("Overwriting property " + key + "=\"" + properties.getProperty(key) + "\" with value \"" + value + "\"");
           properties.setProperty(key, value);
         }
       }
@@ -1049,14 +1001,27 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
     }
   }
 
+  /**
+   * Converts bool value to string if exists.
+   *
+   * @param properties the properties
+   * @param value the value to convert
+   * @param key the key
+   */
   private void configure(Properties properties, Boolean value, String key)
   {
     configure(properties, value == null ? null : value.toString(), key);
   }
 
+  /**
+   * Provides a writable output file.
+   *
+   * @param filename the filename
+   * @return the writable output file
+   * @throws MojoExecutionException if exception occurs during IO operations
+   */
   private File getOutputFile(String filename)
-      throws
-        MojoExecutionException
+      throws MojoExecutionException
   {
     File output = new File(filename);
 
@@ -1073,16 +1038,12 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
     {
       try
       {
-        getLog().info(
-            "Creating directory path for output file:" +
-            outFileParentDir.getPath()
-            );
+        getLog().info("Creating directory path for output file:" + outFileParentDir.getPath());
         outFileParentDir.mkdirs();
       }
       catch (Exception e)
       {
-        String error =
-            "Error creating directory path for output file: " + e.getMessage();
+        String error = "Error creating directory path for output file: " + e.getMessage();
         getLog().error(error);
         throw new MojoExecutionException(error);
       }
@@ -1101,35 +1062,44 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
 
     if (!output.canWrite())
     {
-      String error =
-          "Output file " + output.getAbsolutePath() + " is not writable!";
+      String error = "Output file " + output.getAbsolutePath() + " is not writable!";
       getLog().error(error);
       throw new MojoExecutionException(error);
     }
-
     return output;
   }
 
+  /**
+   * Track the content of the generated script.
+   * Check if the output file is missing or was changed.
+   *
+   * @param output the generated script
+   * @param tracker the tracker
+   * @throws MojoExecutionException if an exception occurs during IO operations
+   */
   private void checkOutputFile(File output, ModificationTracker tracker)
-      throws
-        MojoExecutionException
+      throws MojoExecutionException
   {
     try
     {
-      if (output.exists())
-        tracker.track(SCRIPT, new FileInputStream(output));
-      else
-        tracker.track(SCRIPT, ZonedDateTime.now().toString());
+      if (output.exists()) tracker.track(SCRIPT, new FileInputStream(output));
+      else tracker.track(SCRIPT, ZonedDateTime.now().toString());
     }
     catch (IOException e)
     {
-      String error =
-          "Error while checking the generated script: " + e.getMessage();
+      String error = "Error while checking the generated script: " + e.getMessage();
       getLog().error(error);
       throw new MojoExecutionException(error);
     }
   }
 
+  /**
+   * Add explicitly configured classes.
+   *
+   * @param sources the sources
+   * @param tracker the tracker
+   * @throws MojoFailureException if an exception occurs during IO operations.
+   */
   private void addMappings(MetadataSources sources, ModificationTracker tracker)
       throws MojoFailureException
   {
@@ -1148,24 +1118,28 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
             for (Resource resource : project.getResources())
             {
               file = new File(resource.getDirectory() + File.separator + filename);
-              if (file.exists())
-                break;
+              if (file.exists()) break;
             }
           }
           if (file.exists())
           {
-            if (file.isDirectory())
-              // TODO: add support to read all mappings under a directory
-              throw new MojoFailureException(file.getAbsolutePath() + " is a directory");
+            // TODO: add support to read all mappings under a directory
+            if (file.isDirectory()) throw new MojoFailureException(file.getAbsolutePath() + " is a directory");
             if (tracker.track(filename, new FileInputStream(file)))
+            {
               getLog().debug("Found new or modified mapping-file: " + filename);
+            }
             else
+            {
               getLog().debug("Mapping-file unchanged: " + filename);
+            }
 
             sources.addFile(file);
           }
           else
+          {
             throw new MojoFailureException("File " + filename + " could not be found in any of the configured resource-directories!");
+          }
         }
       }
       catch (IOException e)
@@ -1175,7 +1149,13 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
     }
   }
 
-  private void addRoot(Set<URL> urls, String path) throws MojoFailureException
+  /**
+   * Add output directory URL to list of urls.
+   *
+   * @param urls the URLs collection to add to
+   * @throws MojoFailureException if the URL is malformed
+   */
+  private void addRoot(Set<URL> urls) throws MojoFailureException
   {
     try
     {
@@ -1193,6 +1173,12 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
     }
   }
 
+  /**
+   * Add dependency path URLs to URL collection.
+   *
+   * @param urls the URL collection
+   * @throws MojoFailureException if any of the URLs are malformed
+   */
   private void addDependencies(Set<URL> urls) throws MojoFailureException
   {
     try
@@ -1205,8 +1191,7 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
           getLog().info("Adding dependencies from scope " + matcher.group() + " to the list of roots to scan");
           for (Artifact artifact : project.getDependencyArtifacts())
           {
-            if (!artifact.getScope().equalsIgnoreCase(matcher.group()))
-              continue;
+            if (!artifact.getScope().equalsIgnoreCase(matcher.group())) continue;
             if (artifact.getFile() == null)
             {
               getLog().warn("Cannot add dependency " + artifact.getId() + ": no JAR-file available!");
@@ -1225,24 +1210,25 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
     }
   }
 
+  /**
+   * Scans the URLs.
+   *
+   * @param scanRoots the URLs to scan
+   * @return a set of qualified class names
+   * @throws MojoFailureException if an exception occurs during IO operations
+   */
   private Set<String> scanUrls(Set<URL> scanRoots)
-      throws
-        MojoFailureException
+      throws MojoFailureException
   {
     try
     {
       AnnotationDB db = new AnnotationDB();
-      for (URL root : scanRoots)
-        db.scanArchives(root);
+      for (URL root : scanRoots) db.scanArchives(root);
 
-      Set<String> classes = new HashSet<String>();
-      if (db.getAnnotationIndex().containsKey(Entity.class.getName()))
-        classes.addAll(db.getAnnotationIndex().get(Entity.class.getName()));
-      if (db.getAnnotationIndex().containsKey(MappedSuperclass.class.getName()))
-        classes.addAll(db.getAnnotationIndex().get(MappedSuperclass.class.getName()));
-      if (db.getAnnotationIndex().containsKey(Embeddable.class.getName()))
-        classes.addAll(db.getAnnotationIndex().get(Embeddable.class.getName()));
-
+      Set<String> classes = new HashSet<>();
+      if (db.getAnnotationIndex().containsKey(Entity.class.getName())) classes.addAll(db.getAnnotationIndex().get(Entity.class.getName()));
+      if (db.getAnnotationIndex().containsKey(MappedSuperclass.class.getName())) classes.addAll(db.getAnnotationIndex().get(MappedSuperclass.class.getName()));
+      if (db.getAnnotationIndex().containsKey(Embeddable.class.getName())) classes.addAll(db.getAnnotationIndex().get(Embeddable.class.getName()));
       return classes;
     }
     catch (Exception e)
@@ -1252,15 +1238,17 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
     }
   }
 
-  private void addAnnotated(
-      String name,
-      MetadataSources sources,
-      ClassLoaderService classLoaderService,
-      ModificationTracker tracker
-      )
-      throws
-        MojoFailureException,
-        MojoExecutionException
+  /**
+   * Adds annotated resources and containing packages to the meta-data sources.
+   *
+   * @param name the qualified class/package name
+   * @param sources the sources to add to
+   * @param classLoaderService the class loader service
+   * @param tracker the trqacker
+   * @throws MojoFailureException if any exception occurs
+   */
+  private void addAnnotated(String name, MetadataSources sources, ClassLoaderService classLoaderService, ModificationTracker tracker)
+      throws MojoFailureException
   {
     try
     {
@@ -1272,18 +1260,18 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
       {
         Class<?> annotatedClass = classLoaderService.classForName(name);
         String resourceName = annotatedClass.getName();
-        resourceName =
-            resourceName.substring(
-                resourceName.lastIndexOf(".") + 1,
-                resourceName.length()
-                ) + ".class";
+        resourceName = resourceName.substring(resourceName.lastIndexOf(".") + 1) + ".class";
         InputStream is = annotatedClass.getResourceAsStream(resourceName);
         if (is != null)
         {
           if (tracker.track(name, is))
+          {
             getLog().debug("New or modified class: " + name);
+          }
           else
+          {
             getLog().debug("Unchanged class: " + name);
+          }
           sources.addAnnotatedClass(annotatedClass);
           packageName = annotatedClass.getPackage().getName();
         }
@@ -1304,8 +1292,7 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
 
       while (packageName != null)
       {
-        if (packages.contains(packageName))
-          return;
+        if (packages.contains(packageName)) return;
         String resource = packageName.replace('.', '/') + "/package-info.class";
         InputStream is = classLoaderService.locateResourceStream(resource);
         if (is == null)
@@ -1316,18 +1303,26 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
         else
         {
           if (tracker.track(packageName, is))
+          {
             getLog().debug("New or modified package: " + packageName);
+          }
           else
-           getLog().debug("Unchanged package: " + packageName);
+          {
+            getLog().debug("Unchanged package: " + packageName);
+          }
           getLog().info("Adding annotations from package " + packageName);
           sources.addPackage(packageName);
         }
         packages.add(packageName);
         int i = packageName.lastIndexOf('.');
         if (i < 0)
+        {
           packageName = null;
+        }
         else
-          packageName = packageName.substring(0,i);
+        {
+          packageName = packageName.substring(0, i);
+        }
       }
     }
     catch (Exception e)
@@ -1337,21 +1332,18 @@ public abstract class AbstractSchemaMojo extends AbstractMojo
     }
   }
 
-  private ParsedPersistenceXmlDescriptor loadPersistenceUnit(
-      ClassLoaderService classLoaderService,
-      Properties properties
-      )
-      throws
-        MojoFailureException
+  /**
+   * Loads the persistence unit if available.
+   *
+   * @param properties the persistence unit properties
+   * @return the xml descriptor
+   * @throws MojoFailureException if any exception occurs or properties are inadequate
+   */
+  private ParsedPersistenceXmlDescriptor loadPersistenceUnit(Properties properties)
+      throws MojoFailureException
   {
-    PersistenceXmlParser parser =
-        new PersistenceXmlParser(
-            classLoaderService,
-            PersistenceUnitTransactionType.RESOURCE_LOCAL
-             );
-
     Map<String, ParsedPersistenceXmlDescriptor> units =
-        parser.doResolve(properties);
+            PersistenceXmlParser.parse(null, PersistenceUnitTransactionType.RESOURCE_LOCAL, Collections.unmodifiableMap( properties ));
 
     if (persistenceUnit == null)
     {

@@ -17,7 +17,7 @@
 		<dependency>
 			<groupId>org.hibernate</groupId>
 			<artifactId>hibernate-envers</artifactId>
-			<version>4.3.5.Final</version>
+			<version>5.3.10.Final</version>
 		</dependency>
 
 		<dependency>
@@ -35,7 +35,7 @@
 		<dependency>
 			<groupId>org.hibernate</groupId>
 			<artifactId>hibernate-entitymanager</artifactId>
-			<version>4.3.5.Final</version>
+			<version>5.3.10.Final</version>
 			<scope>test</scope>
 		</dependency>
 		<dependency>
@@ -49,7 +49,7 @@
 		<maven.compiler.source>1.7</maven.compiler.source>
 		<maven.compiler.target>1.7</maven.compiler.target>
 		<failOnMissingWebXml>false</failOnMissingWebXml>
-		<version>@project.version@</version>
+		<version>2.1-SNAPSHOT</version>
 	</properties>
 
 	<build>

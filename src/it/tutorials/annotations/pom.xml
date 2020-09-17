@@ -40,7 +40,7 @@
     <properties>
         <!-- Skip artifact deployment -->
         <maven.deploy.skip>true</maven.deploy.skip>
-        <h4mp.version>@project.version@</h4mp.version>
+        <h4mp.version>2.1-SNAPSHOT</h4mp.version>
     </properties>
 
 

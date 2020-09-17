@@ -7,7 +7,7 @@
     <packaging>bundle</packaging>
 
 	<properties>
-		<h4mp.version>@project.version@</h4mp.version>
+		<h4mp.version>2.1-SNAPSHOT</h4mp.version>
 	</properties>
 
 	<dependencies>
